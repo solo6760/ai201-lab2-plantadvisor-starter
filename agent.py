@@ -1,7 +1,7 @@
 import json
 from groq import Groq
 from config import GROQ_API_KEY, LLM_MODEL, MAX_TOOL_ROUNDS
-from tools import lookup_plant, get_seasonal_conditions
+from tools import lookup_plant, get_seasonal_conditions, search_plants_by_attribute, get_plant_list
 
 _client = Groq(api_key=GROQ_API_KEY)
 
@@ -58,6 +58,45 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_plants_by_attribute",
+            "description": (
+                "Search and filter the plant database by care attributes such as light requirement "
+                "and difficulty. Use this when a user asks for plant recommendations based on "
+                "their home conditions (e.g., 'low light plants', 'easy to care for houseplants')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "light_requirement": {
+                        "type": "string",
+                        "description": "Filter by light level. Allowed values: 'low', 'moderate', 'bright'.",
+                        "enum": ["low", "moderate", "bright"]
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "description": "Filter by difficulty. Allowed values: 'easy', 'moderate', 'hard'.",
+                        "enum": ["easy", "moderate", "hard"]
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_plant_list",
+            "description": "Get a list of all plant names and their difficulty levels present in the local database.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    }
 ]
 
 # ──────────────────────────────────────────────
@@ -70,7 +109,9 @@ SYSTEM_PROMPT = (
     "and current seasonal conditions using your available tools.\n\n"
     "Always use your tools to look up plant-specific information before answering — "
     "don't rely on your general knowledge alone. If a plant isn't in your database, "
-    "say so clearly and offer general guidance based on what the user describes.\n\n"
+    "say so clearly, check if it fits into a general category of plants we do have in "
+    "the database (such as succulents or ferns), and offer care advice grounded in "
+    "those categories where possible.\n\n"
     "Keep your advice practical and specific. Cite the source of your information "
     "when you have it (e.g., 'According to the care data for your monstera...')."
 )
@@ -90,6 +131,13 @@ def dispatch_tool(tool_name: str, tool_args: dict) -> str:
         result = lookup_plant(tool_args["plant_name"])
     elif tool_name == "get_seasonal_conditions":
         result = get_seasonal_conditions(tool_args.get("season"))
+    elif tool_name == "search_plants_by_attribute":
+        result = search_plants_by_attribute(
+            light_requirement=tool_args.get("light_requirement"),
+            difficulty=tool_args.get("difficulty")
+        )
+    elif tool_name == "get_plant_list":
+        result = get_plant_list()
     else:
         result = {"error": f"Unknown tool: {tool_name}"}
     print(f"  ← Result: {json.dumps(result)[:120]}{'...' if len(json.dumps(result)) > 120 else ''}")
@@ -98,34 +146,72 @@ def dispatch_tool(tool_name: str, tool_args: dict) -> str:
 
 # ──────────────────────────────────────────────
 # Agent loop
-# ──────────────────────────────────────────────
-
 def run_agent(user_message: str, history: list) -> str:
-    """
-    Run the plant care agent for one user turn and return its response.
+    try:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-    TODO — Milestone 2:
+        for item in history:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                # Legacy format: list of [user, assistant] pairs
+                user_msg, assistant_msg = item
+                messages.append({"role": "user", "content": user_msg})
+                if assistant_msg:
+                    messages.append({"role": "assistant", "content": assistant_msg})
+            elif hasattr(item, "role") and hasattr(item, "content"):
+                # Gradio ChatMessage object format
+                messages.append({"role": item.role, "content": item.content})
+            elif isinstance(item, dict) and "role" in item and "content" in item:
+                # Dict format (commonly used in API/JSON formats)
+                messages.append({"role": item["role"], "content": item["content"]})
 
-    The agent loop follows a specific pattern that you'll implement here. Read
-    specs/agent-loop-spec.md carefully before writing any code — understand the
-    full loop before implementing any part of it.
+        messages.append({"role": "user", "content": user_message})
 
-    The loop works like this:
-      1. Build a messages list: system prompt + conversation history + new user message
-      2. Call the LLM with messages and TOOL_DEFINITIONS
-      3. If the response contains tool_calls:
-           a. Append the assistant message (with tool_calls) to messages
-           b. For each tool call: execute via dispatch_tool(), append the result
-           c. Call the LLM again with the updated messages
-           d. Repeat until no more tool_calls (or MAX_TOOL_ROUNDS is reached)
-      4. Return the final text response
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = _client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+                tool_choice="auto",
+            )
 
-    Key details to get right:
-      - The assistant message must be appended BEFORE tool results
-      - Tool result messages use role="tool" with a tool_call_id field
-      - Append the assistant's message object directly (not just its content)
-      - The history format from Gradio: list of [user_message, assistant_message] pairs
+            if not response.choices or not response.choices[0].message:
+                return "I'm sorry, I received an empty response from the model. Please try again."
 
-    Before writing code, complete specs/agent-loop-spec.md.
-    """
-    return "🌱 Agent not yet implemented. Complete Milestone 2 to activate the Plant Advisor."
+            assistant_message = response.choices[0].message
+
+            if not assistant_message.tool_calls:
+                return assistant_message.content or "I'm sorry, I couldn't generate a text response."
+
+            # The API requires appending the assistant message with tool calls first
+            messages.append(assistant_message)
+
+            # Execute tool calls
+            for tool_call in assistant_message.tool_calls:
+                tool_name = tool_call.function.name
+                try:
+                    tool_args = json.loads(tool_call.function.arguments)
+                    if not isinstance(tool_args, dict):
+                        tool_args = {}
+                except (json.JSONDecodeError, TypeError):
+                    tool_args = {}
+                
+                tool_result = dispatch_tool(tool_name, tool_args)
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result,
+                })
+
+        # If MAX_TOOL_ROUNDS is reached, make one final call without tools to get a text response
+        final_response = _client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=messages,
+        )
+        if final_response.choices and final_response.choices[0].message:
+            return final_response.choices[0].message.content or "I have reached the limit of tool usage for this turn."
+        return "I have reached the limit of tool usage for this turn."
+
+    except Exception as e:
+        print(f"Agent Loop Error: {e}")
+        return "I'm sorry, I encountered an unexpected error while processing your request. Please try again."

@@ -68,9 +68,9 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 #### Alias matching approach
 
 *Aliases are stored as a list of strings. How will you check if the normalized input matches any alias in the list? Write your approach in pseudocode or plain English.*
-
 ```
-[your answer here]
+Normalize each alias in the plant's alias list (strip whitespace, lowercase) and check if the normalized query matches any of them. In Python, this can be done with:
+normalized in [alias.strip().lower() for alias in plant.get("aliases", [])]
 ```
 
 ---
@@ -80,7 +80,7 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 *When a plant isn't found, the agent will read your message and use it to decide what to tell the user. Write the exact string you'll return — make it useful to the agent, not just to a human reading logs.*
 
 ```
-[your answer here]
+"I couldn't find a plant matching '{plant_name}' in my database. Please check the spelling or try a different common name. I have care information for many common houseplants like Pothos, Snake Plant, and Monstera."
 ```
 
 ---
@@ -91,17 +91,17 @@ likely match for clean user input. Aliases are the broadest net, so they go last
 
 **Test: does `"devil's ivy"` return the pothos entry?**
 ```
-[yes / no — if no, describe what happened]
+yes
 ```
 
 **Test: does `"SNAKE PLANT"` return the snake plant entry?**
 ```
-[yes / no — if no, describe what happened]
+yes
 ```
 
 **One edge case you discovered while implementing:**
 ```
-[your answer here]
+Whitespace and case mismatches (like leading/trailing spaces or mixed casing) are handled correctly via `.strip().lower()` normalization on both the input query and the database keys/aliases/display names.
 ```
 
 ---
@@ -183,12 +183,30 @@ The full season dict from `_season_data`, plus a `detected_season` boolean. Exam
 
 **Test: does calling with `season=None` return the correct season for the current month?**
 ```
-Current month: [month]
-Expected season: [season]
-Returned season: [season]
+Current month: 6 (June)
+Expected season: summer
+Returned season: summer
 ```
 
 **Test: does calling with `season="winter"` return winter data regardless of the current month?**
 ```
-[yes / no]
+yes
 ```
+
+---
+
+## Function 3: `search_plants_by_attribute()`
+
+### Input / Output Contract
+* **Inputs**:
+  * `light_requirement` (`str | None`): Filter criteria for light level ("low", "moderate", "bright").
+  * `difficulty` (`str | None`): Filter criteria for difficulty level ("easy", "moderate", "hard").
+* **Output**: `dict` containing list of matching plant summaries or a not-found dictionary.
+
+---
+
+## Function 4: `get_plant_list()`
+
+### Input / Output Contract
+* **Inputs**: None.
+* **Output**: `dict` containing a list of all plant slugs, display names, and difficulty levels in the database.

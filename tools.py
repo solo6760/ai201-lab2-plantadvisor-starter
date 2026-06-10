@@ -52,10 +52,27 @@ def lookup_plant(plant_name: str) -> dict:
 
     Before writing code, complete the lookup_plant section of specs/tool-functions-spec.md.
     """
+    # Input normalization
+    normalized = plant_name.strip().lower()
+
+    # 1. Direct key match (slug)
+    if normalized in _plant_db:
+        return {"found": True, "plant": _plant_db[normalized]}
+
+    # 2 & 3. Iterative search through values
+    for plant in _plant_db.values():
+        # Display name match
+        if plant["display_name"].lower() == normalized:
+            return {"found": True, "plant": plant}
+        
+        # Alias match
+        if normalized in [alias.strip().lower() for alias in plant.get("aliases", [])]:
+            return {"found": True, "plant": plant}
+
     return {
         "found": False,
         "name": plant_name,
-        "message": "Plant lookup not yet implemented. Complete Milestone 1.",
+        "message": f"I couldn't find a plant matching '{plant_name}' in my database. Please check the spelling or try a different common name. I have care information for many common houseplants like Pothos, Snake Plant, and Monstera.",
     }
 
 
@@ -84,3 +101,50 @@ def get_seasonal_conditions(season: str | None = None) -> dict:
     result = dict(_season_data[season_key])
     result["detected_season"] = detected
     return result
+
+
+def search_plants_by_attribute(light_requirement: str | None = None, difficulty: str | None = None) -> dict:
+    """
+    Search the plant database for plants matching specific care criteria.
+    """
+    matches = []
+    
+    for slug, plant in _plant_db.items():
+        # Check difficulty filter
+        if difficulty and plant.get("difficulty", "").lower() != difficulty.lower():
+            continue
+            
+        # Check light requirement filter
+        if light_requirement:
+            plant_light = plant.get("light", {}).get("requirement", "").lower()
+            if light_requirement.lower() not in plant_light:
+                continue
+        
+        matches.append({
+            "slug": slug,
+            "display_name": plant["display_name"],
+            "difficulty": plant["difficulty"],
+            "light_requirement": plant["light"]["requirement"]
+        })
+        
+    if matches:
+        return {"found": True, "count": len(matches), "plants": matches}
+    
+    return {
+        "found": False, 
+        "message": f"No plants found matching the criteria (Light: {light_requirement}, Difficulty: {difficulty})."
+    }
+
+
+def get_plant_list() -> dict:
+    """
+    Return a list of all plant names and their difficulty levels present in the database.
+    """
+    plants = []
+    for slug, plant in _plant_db.items():
+        plants.append({
+            "slug": slug,
+            "display_name": plant.get("display_name"),
+            "difficulty": plant.get("difficulty")
+        })
+    return {"plants": plants}

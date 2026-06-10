@@ -122,7 +122,8 @@ for tool_call in assistant_message.tool_calls:
 *The loop should stop when: (a) the LLM returns a response with no tool calls, OR (b) the MAX_TOOL_ROUNDS limit is reached. Describe how you will detect each condition and what you will return in each case.*
 
 ```
-[your answer here]
+(a) No tool calls: We check `if not assistant_message.tool_calls`. When this is true, we break the loop and return the assistant's text response.
+(b) MAX_TOOL_ROUNDS reached: We maintain an integer counter of API calls. If the counter equals MAX_TOOL_ROUNDS, we stop calling tools, append no further tool outputs, and return whatever text response the assistant generated.
 ```
 
 ---
@@ -132,7 +133,7 @@ for tool_call in assistant_message.tool_calls:
 *Once the loop exits because there are no more tool calls, how do you extract the text content from the response object? What field holds the string you should return?*
 
 ```
-[your answer here]
+You access `response.choices[0].message.content` (or `assistant_message.content`), which contains the raw text string returned by the model.
 ```
 
 ---
@@ -145,19 +146,19 @@ for tool_call in assistant_message.tool_calls:
 
 ```
 Query: "How should I care for my calathea?"
-Round 1 tool call: [tool name, args]
-Round 2 tool call: [tool name, args] (if any)
-Final response: [brief description]
+Round 1 tool call: lookup_plant(plant_name='calathea')
+Round 2 tool call: get_seasonal_conditions(season=None)
+Final response: A detailed care response detailing Calathea's watering, light, humidity, and temperature requirements, plus seasonal guidance for summer.
 ```
 
 **What happens when you ask about a plant that isn't in the database?**
 
 ```
-[describe the behavior you observed]
+The agent calls lookup_plant(), which returns {"found": False}. The agent then informs the user that the plant is not in its database and provides general care advice using its pre-trained knowledge.
 ```
 
 **One thing about the tool call API that surprised you:**
 
 ```
-[your answer here]
+The LLM can issue multiple tool calls in parallel within a single response message, requiring the agent loop to iterate over all tool_calls, execute them, and return corresponding 'tool' messages with matching ids before re-invoking the LLM.
 ```
